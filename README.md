@@ -1,3 +1,4 @@
+
 # Flight Admin Service
 
 A Spring Boot microservice for administering airports and flights as part of a larger flight booking platform.
@@ -46,6 +47,9 @@ The current focus is the **Admin Service only**.
 - Spring Boot Actuator
 - springdoc-openapi / Swagger UI
 - SLF4J + Logback
+- JUnit 5 (JUnit Jupiter)
+- Mockito
+- Testcontainers
 - Docker / Docker Compose
 
 ---
@@ -76,6 +80,9 @@ The service currently supports:
 - Correlation IDs
 - Request audit logging to the `webservices` table
 - Unexpected application error logging to the `application_errors` table
+- Unit tests with JUnit 5 and Mockito
+- SQL Server integration tests with Testcontainers
+- API/controller integration tests against a real Spring Boot HTTP server
 
 ---
 
@@ -155,9 +162,26 @@ flight-admin-service/
     |               |-- V3__create_application_errors_table.sql
     |               `-- V4__create_webservices_table.sql
     |
-    `-- test/
-        `-- java/
-            `-- .../FlightAdminServiceApplicationTests.java
+    |-- test/
+    |   `-- java/
+    |       `-- com/maverick/flightadminservice/
+    |           |-- airport/
+    |           |   `-- service/
+    |           |       `-- AirportServiceImplTest.java
+    |           `-- flight/
+    |               `-- service/
+    |                   `-- FlightServiceImplTest.java
+    |
+    `-- integrationTest/
+        |-- java/
+        |   `-- com/maverick/flightadminservice/
+        |       |-- TestContainersConfiguration.java
+        |       |-- airport/
+        |       |   |-- AirportServiceIntegrationTest.java
+        |       |   `-- AirportControllerIntegrationTest.java
+        |       `-- flight/
+        |           `-- FlightServiceIntegrationTest.java
+        `-- resources/
 ```
 
 ---
@@ -354,6 +378,81 @@ tasks.named('test') {
 ```
 
 Refresh Gradle in IntelliJ after changing dependencies.
+
+The current project also defines a separate `integrationTest` source set and task. The important testing dependencies/configurations include:
+
+```gradle
+sourceSets {
+    integrationTest {
+        java.srcDir 'src/integrationTest/java'
+        resources.srcDir 'src/integrationTest/resources'
+
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    mockitoAgent
+
+    integrationTestImplementation.extendsFrom implementation, testImplementation
+    integrationTestRuntimeOnly.extendsFrom runtimeOnly, testRuntimeOnly
+}
+
+dependencies {
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+    integrationTestImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    integrationTestImplementation 'org.testcontainers:testcontainers-mssqlserver'
+
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    mockitoAgent('org.mockito:mockito-core') {
+        transitive = false
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+
+    jvmArgs "-javaagent:${configurations.mockitoAgent.asPath}"
+
+    testLogging {
+        events "passed", "failed", "skipped"
+        showStandardStreams = true
+    }
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+
+    shouldRunAfter test
+    useJUnitPlatform()
+
+    jvmArgs "-javaagent:${configurations.mockitoAgent.asPath}"
+
+    testLogging {
+        events "passed", "failed", "skipped"
+        showStandardStreams = true
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('integrationTest')
+}
+```
+
+Useful commands:
+
+```text
+./gradlew test             -> unit tests only
+./gradlew integrationTest  -> integration tests only
+./gradlew clean build      -> unit + integration tests + package
+```
 
 ---
 
@@ -751,41 +850,748 @@ A successful build ends with:
 BUILD SUCCESSFUL
 ```
 
-The generated Spring Boot test:
+The project is configured so `build` runs the unit-test task and the custom `integrationTest` task before packaging succeeds.
+
+If either unit tests or integration tests fail, the build fails and a container image should not be published by CI.
+
+---
+
+# Testing
+
+The project has two deliberately separate test layers.
+
+```text
+src/test/java
+    |
+    +--> JUnit 5 + Mockito unit tests
+         No Spring context
+         No SQL Server
+         No Docker
+
+src/integrationTest/java
+    |
+    +--> Spring Boot integration tests
+         Real Spring ApplicationContext
+         Real Hibernate/JPA repositories
+         Flyway migrations
+         Temporary SQL Server Testcontainer
+         Optional real HTTP server for controller/API tests
+```
+
+## Unit Tests
+
+Unit tests live in:
+
+```text
+src/test/java/
+```
+
+Examples:
+
+```text
+AirportServiceImplTest
+FlightServiceImplTest
+```
+
+These tests use JUnit 5 to run assertions and Mockito to replace dependencies such as repositories.
+
+A service unit test should normally follow:
+
+```text
+Arrange
+    |
+    +--> create request/test data
+    +--> configure Mockito mocks
+
+Act
+    |
+    +--> call the method being tested
+
+Assert
+    |
+    +--> verify returned result or exception
+    +--> verify important repository interactions
+```
+
+Unit tests should not start Spring, SQL Server, Flyway, Docker, or Testcontainers.
+
+### Run all unit tests
+
+```bash
+./gradlew test
+```
+
+### Run one unit-test class
+
+```bash
+./gradlew test --tests "*AirportServiceImplTest"
+```
+
+```bash
+./gradlew test --tests "*FlightServiceImplTest"
+```
+
+### Run one test method
+
+```bash
+./gradlew test \
+  --tests "*AirportServiceImplTest.createAirport_shouldCreateAirport_whenRequestIsValid"
+```
+
+### Unit-test report
+
+Gradle generates:
+
+```text
+build/reports/tests/test/index.html
+```
+
+On Windows/Git Bash:
+
+```bash
+start build/reports/tests/test/index.html
+```
+
+---
+
+## Integration Tests
+
+Integration tests live in:
+
+```text
+src/integrationTest/java/
+```
+
+Run them with:
+
+```bash
+./gradlew integrationTest
+```
+
+These tests require **Docker Desktop to be running** because Testcontainers starts a real temporary SQL Server instance.
+
+You do not need to manually start the normal `flight-admin-sqlserver` Compose container for these tests.
+
+The integration-test flow is:
+
+```text
+./gradlew integrationTest
+        |
+        v
+Testcontainers connects to Docker
+        |
+        v
+Temporary SQL Server starts
+        |
+        v
+Spring Boot ApplicationContext starts
+        |
+        v
+@ServiceConnection provides DB connection details
+        |
+        v
+Flyway runs migrations
+        |
+        v
+Hibernate validates schema
+        |
+        v
+Integration tests execute
+        |
+        v
+Temporary SQL Server container is removed
+```
+
+### Service/database integration tests
+
+Example:
+
+```text
+AirportServiceIntegrationTest
+```
+
+These verify:
+
+```text
+AirportService
+    |
+    v
+AirportServiceImpl
+    |
+    v
+AirportRepository
+    |
+    v
+Hibernate / JPA
+    |
+    v
+SQL Server Testcontainer
+```
+
+A service integration-test class can use:
 
 ```java
 @SpringBootTest
-class FlightAdminServiceApplicationTests {
+@Import(TestContainersConfiguration.class)
+@Transactional
+```
 
-    @Test
-    void contextLoads() {
+`@Transactional` is useful here because the service-level test transaction can be rolled back after the test.
+
+### API/controller integration tests
+
+Example:
+
+```text
+AirportControllerIntegrationTest
+```
+
+These start a real embedded web server:
+
+```java
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
+)
+@AutoConfigureRestTestClient
+@Import(TestContainersConfiguration.class)
+```
+
+The real request path becomes:
+
+```text
+HTTP Request
+    |
+    v
+Tomcat
+    |
+    v
+CorrelationIdFilter
+    |
+    v
+WebServiceLoggingFilter
+    |
+    v
+Jackson / Bean Validation
+    |
+    v
+AirportController
+    |
+    v
+AirportService
+    |
+    v
+AirportRepository
+    |
+    v
+SQL Server Testcontainer
+    |
+    v
+HTTP / JSON Response
+```
+
+Useful API integration tests include:
+
+```text
+POST airport              -> 201
+POST duplicate airport    -> 409
+POST invalid airport      -> 400
+GET existing airport      -> 200
+GET missing airport       -> 404
+GET airports              -> 200 + JSON list
+```
+
+Each integration test should arrange its own data and be independently runnable. Do not rely on one test running before another.
+
+For API tests, database cleanup can be performed with:
+
+```java
+@Autowired
+private AirportRepository airportRepository;
+
+@BeforeEach
+void cleanDatabase() {
+    airportRepository.deleteAll();
+}
+```
+
+Once flights reference airports, delete dependent data first:
+
+```text
+flights first
+airports second
+```
+
+Do not rely on `@Transactional` on a `RANDOM_PORT` HTTP test to roll back endpoint-created data because the HTTP request runs in a different server thread/transaction.
+
+### Integration-test report
+
+Gradle generates:
+
+```text
+build/reports/tests/integrationTest/index.html
+```
+
+On Windows/Git Bash:
+
+```bash
+start build/reports/tests/integrationTest/index.html
+```
+
+---
+
+## Run Every Test
+
+Run only the two test tasks:
+
+```bash
+./gradlew test integrationTest
+```
+
+Run the complete verification/build:
+
+```bash
+./gradlew clean build
+```
+
+Because:
+
+```gradle
+tasks.named('check') {
+    dependsOn tasks.named('integrationTest')
+}
+```
+
+the build runs both unit and integration tests.
+
+---
+
+## Test Troubleshooting
+
+### Tests pass but Gradle does not show individual test names
+
+Ensure the test task contains:
+
+```gradle
+testLogging {
+    events "passed", "failed", "skipped"
+    showStandardStreams = true
+}
+```
+
+The same can be configured for `integrationTest`.
+
+---
+
+### Mockito self-attaching / dynamic Java agent warning
+
+A warning such as:
+
+```text
+Mockito is currently self-attaching to enable the inline-mock-maker.
+Dynamic loading of agents will be disallowed by default in a future release.
+```
+
+does not mean the tests failed.
+
+On Java 21+, configure Mockito as a Java agent:
+
+```gradle
+configurations {
+    mockitoAgent
+}
+
+dependencies {
+    mockitoAgent('org.mockito:mockito-core') {
+        transitive = false
+    }
+}
+
+tasks.named('test') {
+    jvmArgs "-javaagent:${configurations.mockitoAgent.asPath}"
+}
+```
+
+---
+
+### `Cannot resolve symbol 'ServiceConnection'`
+
+Check:
+
+```gradle
+integrationTestImplementation 'org.springframework.boot:spring-boot-testcontainers'
+```
+
+Then run:
+
+```bash
+./gradlew clean integrationTestClasses
+```
+
+and reload the Gradle project in IntelliJ.
+
+Verify the classpath with:
+
+```bash
+./gradlew dependencies --configuration integrationTestCompileClasspath
+```
+
+Look for:
+
+```text
+org.springframework.boot:spring-boot-testcontainers
+```
+
+---
+
+### `Cannot resolve symbol 'MSSQLServerContainer'`
+
+Check:
+
+```gradle
+integrationTestImplementation 'org.testcontainers:testcontainers-mssqlserver'
+```
+
+With Testcontainers 2.x use:
+
+```java
+import org.testcontainers.mssqlserver.MSSQLServerContainer;
+```
+
+Then:
+
+```bash
+./gradlew clean integrationTestClasses
+```
+
+and reload Gradle in IntelliJ.
+
+---
+
+### IntelliJ only offers `New -> Directory` under `integrationTest/java`
+
+Ensure:
+
+```gradle
+sourceSets {
+    integrationTest {
+        java.srcDir 'src/integrationTest/java'
+        resources.srcDir 'src/integrationTest/resources'
     }
 }
 ```
 
-starts the Spring application context and therefore also checks:
-
-- datasource configuration
-- Flyway startup
-- Hibernate schema validation
-- JPA entity mappings
-- repository initialization
-
-If the build fails with:
+Then:
 
 ```text
+Gradle Tool Window
+-> Reload All Gradle Projects
+```
+
+Prefer letting IntelliJ derive the custom source set from Gradle.
+
+---
+
+### `Autowired members must be defined in valid Spring bean`
+
+Inside an integration-test class this may be an IntelliJ inspection/source-set issue.
+
+First verify Gradle can compile the integration tests:
+
+```bash
+./gradlew integrationTestClasses
+```
+
+Constructor injection is supported:
+
+```java
+@SpringBootTest
+@TestConstructor(
+    autowireMode = TestConstructor.AutowireMode.ALL
+)
+class AirportServiceIntegrationTest {
+
+    private final AirportService airportService;
+
+    AirportServiceIntegrationTest(
+            AirportService airportService
+    ) {
+        this.airportService = airportService;
+    }
+}
+```
+
+If Gradle compiles successfully but IntelliJ still warns, reload the Gradle project.
+
+---
+
+### `Could not find a valid Docker environment`
+
+This is a Testcontainers/Docker issue.
+
+Make sure Docker Desktop is running.
+
+From the same terminal:
+
+```bash
+docker version
+docker info
+docker ps
+```
+
+Also try:
+
+```bash
+docker run --rm hello-world
+```
+
+Then:
+
+```bash
+./gradlew integrationTest
+```
+
+Inspect Docker/Testcontainers environment variables:
+
+```bash
+echo $DOCKER_HOST
+```
+
+```bash
+env | grep -E 'DOCKER|TESTCONTAINERS'
+```
+
+A stale manually configured Docker endpoint can prevent Testcontainers from finding Docker.
+
+---
+
+### `Failed to load ApplicationContext`
+
+This is usually a top-level symptom, not the root cause.
+
+Run:
+
+```bash
+./gradlew integrationTest --stacktrace
+```
+
+Read down to the deepest:
+
+```text
+Caused by:
+```
+
+Typical root causes:
+
+```text
+Could not find a valid Docker environment
+Flyway migration failure
 SchemaManagementException
+Database connection failure
+Bean creation failure
+Missing configuration
 ```
 
-check the full stack trace for a message such as:
+Fix the deepest/root cause first.
+
+---
+
+### `SchemaManagementException`
+
+Hibernate found a mismatch between JPA entities and the Flyway-created schema.
+
+Run:
+
+```bash
+./gradlew integrationTest --stacktrace
+```
+
+Look for:
 
 ```text
-Schema-validation: missing table [...]
-Schema-validation: missing column [...]
-Schema-validation: wrong column type [...]
+Schema-validation: missing table
+Schema-validation: missing column
+Schema-validation: wrong column type
 ```
 
-This normally means a JPA entity and Flyway-created schema do not match.
+Fix the entity/migration mismatch rather than disabling validation.
+
+---
+
+### Flyway migration fails only in integration tests
+
+Testcontainers starts a clean SQL Server database, so every migration must work from scratch:
+
+```text
+V1
+V2
+V3
+V4
+...
+```
+
+Check:
+
+```text
+src/main/resources/db/migration/
+```
+
+and run:
+
+```bash
+./gradlew integrationTest --stacktrace
+```
+
+A failure here often means the migration depends on something that was manually created in the local development database.
+
+---
+
+### Duplicate airport / unique-constraint failures between API tests
+
+Each API integration test should start with predictable data.
+
+For airport-only tests:
+
+```java
+@BeforeEach
+void cleanDatabase() {
+    airportRepository.deleteAll();
+}
+```
+
+Do not depend on test execution order.
+
+Avoid:
+
+```text
+POST test creates AKL
+GET test expects POST test to have already run
+```
+
+Instead, each GET test should create the data it needs in its own Arrange section.
+
+---
+
+### Database cleanup fails because of foreign keys
+
+When flights reference airports:
+
+```java
+airportRepository.deleteAll();
+```
+
+may fail while flights still reference airport rows.
+
+Use dependency order:
+
+```java
+flightRepository.deleteAll();
+airportRepository.deleteAll();
+```
+
+As the schema grows, move cleanup into a shared integration-test helper.
+
+---
+
+### Integration tests are not being discovered
+
+Confirm:
+
+```text
+src/integrationTest/java/
+```
+
+and the custom Gradle source set/task exist.
+
+Then run:
+
+```bash
+./gradlew integrationTestClasses
+```
+
+followed by:
+
+```bash
+./gradlew integrationTest --info
+```
+
+Tests should use JUnit Jupiter:
+
+```java
+import org.junit.jupiter.api.Test;
+```
+
+and the task must contain:
+
+```gradle
+useJUnitPlatform()
+```
+
+---
+
+### Run one failing integration test
+
+One class:
+
+```bash
+./gradlew integrationTest \
+  --tests "*AirportServiceIntegrationTest"
+```
+
+Controller class:
+
+```bash
+./gradlew integrationTest \
+  --tests "*AirportControllerIntegrationTest"
+```
+
+One method:
+
+```bash
+./gradlew integrationTest \
+  --tests "*AirportControllerIntegrationTest.getAirport_shouldReturn200_whenAirportExists"
+```
+
+---
+
+### Useful diagnostic commands
+
+```bash
+./gradlew test --info
+```
+
+```bash
+./gradlew integrationTest
+```
+
+```bash
+./gradlew integrationTest --stacktrace
+```
+
+```bash
+./gradlew integrationTestClasses
+```
+
+```bash
+./gradlew dependencies --configuration integrationTestCompileClasspath
+```
+
+```bash
+docker version
+docker info
+docker ps
+```
+
+Unit-test report:
+
+```bash
+start build/reports/tests/test/index.html
+```
+
+Integration-test report:
+
+```bash
+start build/reports/tests/integrationTest/index.html
+```
 
 ---
 
@@ -1574,8 +2380,8 @@ Possible next features:
 - Flight schedule/flight instance separation
 - Pagination and filtering
 - Search flights by origin/destination/date
-- Unit and integration tests
-- Testcontainers for SQL Server integration tests
+- Expand unit and integration test coverage
+- Add flight API/controller integration tests
 - Authentication and authorization
 - Kafka or another message broker
 - Transactional Outbox Pattern
