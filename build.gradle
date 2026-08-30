@@ -97,3 +97,8 @@ tasks.register('integrationTest', Test) {
 tasks.named('check') {
     dependsOn tasks.named('integrationTest')
 }
+
+// rename the executable to this from the original name
+tasks.named('bootJar') {
+    archiveFileName = 'flight-admin-service.jar'
+}

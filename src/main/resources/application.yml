@@ -6,7 +6,7 @@ spring:
   datasource:
     url: jdbc:sqlserver://localhost:1433;databaseName=flight_admin;encrypt=true;trustServerCertificate=true
     username: sa
-    password: ${DB_PASSWORD}
+    password: ${MSSQL_SA_PASSWORD}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
 
   jpa:
@@ -23,11 +23,11 @@ spring:
     problemdetails:
       enabled: true
 
-  logging:
-    level:
-      root: INFO
-      com.maverick.flightadminservice: INFO
+logging:
+  level:
+    root: INFO
+    com.maverick.flightadminservice: INFO
 
-    pattern:
-      correlation: "[corr=%X{correlationId:-}] "
+  pattern:
+    level: "%5p [corr=%X{correlationId:-}]"
 

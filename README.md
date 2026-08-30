@@ -1909,36 +1909,6 @@ This avoids unintentionally storing passwords, tokens, payment information, or l
 
 ---
 
-# Unexpected Error Audit Table
-
-Unexpected `500` errors are recorded in:
-
-```text
-application_errors
-```
-
-Typical columns:
-
-```text
-id
-error_reference
-correlation_id
-occurred_at
-http_status
-exception_type
-error_message
-http_method
-request_path
-```
-
-The full Java stack trace belongs in application/central logs rather than being stored in the database.
-
-The database row acts as an audit/index record.
-
-Expected client errors such as `400`, `404`, or `409` are normally not written to `application_errors`.
-
----
-
 # Logging
 
 Spring Boot uses SLF4J with Logback by default.
@@ -2198,73 +2168,7 @@ Create the same flight number + scheduled departure twice:
 
 ---
 
-# Git Setup
-
-Initialize:
-
-```bash
-git init -b main
-```
-
-Stage:
-
-```bash
-git add .
-```
-
-Check that `.env` is ignored:
-
-```bash
-git status
-```
-
-Commit:
-
-```bash
-git commit -m "Initial flight admin service"
-```
-
-Add GitHub remote:
-
-```bash
-git remote add origin https://github.com/YOUR-USERNAME/flight-admin-service.git
-```
-
-Push:
-
-```bash
-git push -u origin main
-```
-
-If an old `origin` exists:
-
-```bash
-git remote remove origin
-```
-
-Then add the correct one.
-
----
-
 # Troubleshooting
-
-## `DataSourceBeanCreationException`
-
-Usually means Spring cannot configure/connect to SQL Server.
-
-Check:
-
-- Docker container is running
-- port `1433` is mapped
-- `flight_admin` exists
-- `DB_PASSWORD` is configured
-- username/password are correct
-
-Check:
-
-```bash
-docker compose ps
-```
 
 ---
 
@@ -2286,11 +2190,12 @@ Schema-validation: missing column
 Schema-validation: wrong column type
 ```
 
-Fix the migration/entity mismatch instead of disabling validation.
+Often this means that the sql table file for the migration hasnt been created yet.
+Only the entity class was created, so flyway cant reconcile the entity classes structure and the sql schema.
 
 ---
 
-## Swagger Does Not Load
+## Swagger UI
 
 Make sure the application started successfully.
 
@@ -2300,94 +2205,395 @@ Open:
 http://localhost:8080/swagger-ui.html
 ```
 
-Also try:
+Also try - this is for the openapi specs
 
 ```text
 http://localhost:8080/v3/api-docs
 ```
 
----
+# Nexus Local Docker Registry Setup
 
-## `bootRun` Looks Stuck at 80%
+This guide documents the working process for setting up Sonatype Nexus Repository Community Edition as a local Docker registry on Windows with Docker Desktop.
 
-This is expected.
+## 1. Install Nexus as a Windows Service
 
-If you see:
+Extract Nexus to a permanent location, for example:
 
 ```text
-Tomcat started on port 8080
-Started FlightAdminServiceApplication
+C:\nexus\nexus-3.x.x
 ```
 
-the application is already running.
+Open **Command Prompt as Administrator**:
 
-`bootRun` remains active because the server is waiting for requests.
+```cmd
+cd /d C:\nexus\nexus-3.x.x\bin
+install-nexus-service.bat
+```
+
+Open Windows Services:
+
+```text
+Win + R
+services.msc
+```
+
+Find:
+
+```text
+SonatypeNexusRepository
+```
+
+Start the service.
 
 ---
 
-## Logs Do Not Show
+## 2. Open Nexus
 
-If running:
+Open Nexus in a browser:
 
-```bash
-./gradlew bootRun
+```text
+http://localhost:8081
 ```
 
-logs appear in that terminal.
+Log in with the `admin` user.
 
-If running with IntelliJ's Run button, logs appear in IntelliJ's Run tool window.
+The initial admin password is stored under the Nexus data directory in:
 
-Make sure application classes contain actual SLF4J calls such as:
+```text
+sonatype-work\nexus3\admin.password
+```
 
-```java
-log.info("Creating flight flightNumber={}", flightNumber);
+Complete the onboarding process:
+
+- Change the initial admin password
+- Accept the Nexus Community Edition EULA
+- Complete the remaining setup steps
+
+---
+
+## 3. Create a Docker Hosted Repository
+
+In Nexus, go to:
+
+```text
+Settings
+→ Repository
+→ Repositories
+→ Create repository
+→ docker (hosted)
+```
+
+Create a repository named:
+
+```text
+flight-admin-onprem
+```
+
+Enable **Path-based routing**.
+
+Save the repository.
+
+The image path will follow this pattern:
+
+```text
+<registry-host>/<repository-name>/<image-name>:<tag>
+```
+
+Example:
+
+```text
+host.docker.internal:8081/flight-admin-onprem/flight-admin-service:0.0.1
 ```
 
 ---
 
-# Development Principles
+## 4. Enable Docker Authentication
 
-The project currently follows these principles:
+In Nexus, go to:
 
-1. Each microservice should eventually own its own database/schema.
-2. The booking service should not directly query admin-service tables.
-3. Cross-service communication should eventually use events or APIs.
-4. Flyway owns schema evolution.
-5. Hibernate validates the schema instead of modifying it.
-6. Controllers handle HTTP concerns.
-7. Services hold business logic.
-8. Repositories handle persistence.
-9. DTOs define API contracts.
-10. JPA entities are not returned directly from controllers.
-11. Expected failures return appropriate 4xx responses.
-12. Unexpected failures return 500 with a traceable correlation ID.
-13. Logging should be structured and centralized in production.
-14. Sensitive request/response data should not be written to audit tables by default.
+```text
+Settings
+→ Security
+→ Realms
+```
+
+Move:
+
+```text
+Docker Bearer Token Realm
+```
+
+into the list of active realms.
+
+Save the configuration.
 
 ---
 
-# Planned Next Steps
+## 5. Configure Docker Desktop for the Local HTTP Registry
 
-Possible next features:
+Because the local Nexus registry is using HTTP rather than HTTPS, Docker Desktop must treat it as an insecure registry.
 
-- Update airport
-- Deactivate airport
-- Cancel flight
-- Flight cancellation reason
-- Aircraft types
-- Aircraft registration
-- Assign aircraft to flights
-- Flight schedule/flight instance separation
-- Pagination and filtering
-- Search flights by origin/destination/date
-- Expand unit and integration test coverage
-- Add flight API/controller integration tests
-- Authentication and authorization
-- Kafka or another message broker
-- Transactional Outbox Pattern
-- Booking Service
-- Distributed tracing with Micrometer / OpenTelemetry
-- Centralized structured logging
-- CI/CD pipeline
+Open:
 
-The next major domain feature should probably be **aircraft and aircraft assignment**, followed by **flight cancellation and event publishing**.
+```text
+Docker Desktop
+→ Settings
+→ Docker Engine
+```
+
+Add:
+
+```json
+"insecure-registries": [
+  "host.docker.internal:8081"
+]
+```
+
+Example configuration:
+
+```json
+{
+  "builder": {
+    "gc": {
+      "defaultKeepStorage": "20GB",
+      "enabled": true
+    }
+  },
+  "experimental": false,
+  "insecure-registries": [
+    "host.docker.internal:8081"
+  ]
+}
+```
+
+Click:
+
+```text
+Apply & restart
+```
+
+> For production environments, use HTTPS/TLS rather than an insecure HTTP registry.
+
+---
+
+## 6. Verify Docker Loaded the Registry Configuration
+
+Run in PowerShell:
+
+```powershell
+docker info | Select-String -Pattern "Insecure Registries" -Context 0,8
+```
+
+You should see:
+
+```text
+host.docker.internal:8081
+```
+
+---
+
+## 7. Verify the Nexus Docker Registry Endpoint
+
+From Windows, run:
+
+```powershell
+curl.exe -v http://localhost:8081/v2/
+```
+
+A response similar to this is expected:
+
+```text
+HTTP/1.1 401 Unauthorized
+Docker-Distribution-Api-Version: registry/2.0
+```
+
+The `401 Unauthorized` response is expected when authentication is enabled. It confirms that the Docker Registry v2 endpoint is available.
+
+---
+
+## 8. Login to Nexus from Docker
+
+Run:
+
+```powershell
+docker login host.docker.internal:8081
+```
+
+Enter the Nexus username and password when prompted.
+
+Expected result:
+
+```text
+Login Succeeded
+```
+
+Do not place passwords directly in commands or commit credentials to source control.
+
+---
+
+## 9. Test the Registry with Alpine
+
+Pull a small public image:
+
+```powershell
+docker pull alpine:latest
+```
+
+Tag it for the Nexus repository:
+
+```powershell
+docker tag alpine:latest `
+  host.docker.internal:8081/flight-admin-onprem/alpine:test
+```
+
+Verify the new tag:
+
+```powershell
+docker images
+```
+
+You should see:
+
+```text
+host.docker.internal:8081/flight-admin-onprem/alpine   test
+```
+
+---
+
+## 10. Push the Image to Nexus
+
+Push the image:
+
+```powershell
+docker push `
+  host.docker.internal:8081/flight-admin-onprem/alpine:test
+```
+
+A successful push will end with output similar to:
+
+```text
+Pushed
+test: digest: sha256:...
+```
+
+---
+
+## 11. Verify the Image in Nexus
+
+Open:
+
+```text
+http://localhost:8081
+```
+
+Then go to:
+
+```text
+Browse
+→ flight-admin-onprem
+```
+
+The pushed Alpine image should now appear in the repository.
+
+---
+
+## 12. Verify Pulling from Nexus
+
+Remove the local Nexus-tagged image:
+
+```powershell
+docker image rm `
+  host.docker.internal:8081/flight-admin-onprem/alpine:test
+```
+
+Pull it back from Nexus:
+
+```powershell
+docker pull `
+  host.docker.internal:8081/flight-admin-onprem/alpine:test
+```
+
+If the pull succeeds, the registry setup is working end-to-end.
+
+---
+
+## Important Hostname Difference
+
+When accessing Nexus directly from Windows:
+
+```text
+http://localhost:8081
+```
+
+When Docker Desktop pushes or pulls images:
+
+```text
+host.docker.internal:8081
+```
+
+This is because Docker Desktop runs its engine in a Linux environment and uses `host.docker.internal` to reach services running on the Windows host.
+
+---
+
+## Image Naming Convention
+
+Use:
+
+```text
+host.docker.internal:8081/flight-admin-onprem/<image-name>:<tag>
+```
+
+For the Admin API:
+
+```text
+host.docker.internal:8081/flight-admin-onprem/flight-admin-service:0.0.1
+```
+
+Later, Jenkins can generate tags automatically using a Git commit SHA or build number.
+
+Example:
+
+```text
+host.docker.internal:8081/flight-admin-onprem/flight-admin-service:a1b2c3d
+```
+
+---
+
+## Intended CI/CD Flow
+
+```text
+Git Repository
+      ↓
+Jenkins
+      ↓
+Unit Tests
+      ↓
+Integration Tests
+      ↓
+Build Spring Boot JAR
+      ↓
+Build Docker Image
+      ↓
+Tag Docker Image
+      ↓
+Push to Nexus
+      ↓
+Kubernetes Deployment
+```
+
+## Difference between the Compose and DockerFiles
+
+For Jenkins, create a dedicated Nexus CI user with only the permissions required to push and pull images. Do not use the Nexus `admin` account for CI/CD.
+
+The DockerFile describes how to build one image, in this case it is for the admin-service
+
+So when you want to build a new image of your spring boot admin service
+```text
+docker build -t flight-admin-service:local .
+```
+Whereas the compose.yaml describes how to run multiple containers together, in this case it is sql server container and the admin service container, inside of a single private network.
+In our case it is getting the admin api container from the registry.
+
+Once kubernetes is setup, compose will no longer be needed as this part will be done by kubernetes. 
+
+But can also have a local dev setup where compose calls dockerfile which will first build the admin api artifact and then compose combines it into the same vnet as the mysql container.
