@@ -1,4 +1,4 @@
-package com.maverick.flightadminservice.commons.logging;
+package com.maverick.flightadminservice.commons.filters;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
