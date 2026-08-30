@@ -18,8 +18,21 @@ repositories {
     mavenCentral()
 }
 
+sourceSets {
+    integrationTest {
+        java.srcDir 'src/integrationTest/java'
+        resources.srcDir 'src/integrationTest/resources'
+
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+
 configurations {
     mockitoAgent
+    integrationTestImplementation.extendsFrom implementation, testImplementation
+    integrationTestRuntimeOnly.extendsFrom runtimeOnly, testRuntimeOnly
 }
 
 dependencies {
@@ -37,6 +50,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    integrationTestImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    integrationTestImplementation 'org.testcontainers:testcontainers-mssqlserver'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
     mockitoAgent('org.mockito:mockito-core') {
@@ -54,4 +69,31 @@ tasks.named('test') {
         events "passed", "failed", "skipped"
         showStandardStreams = true
     }
+}
+
+// ./gradlew integrationTest
+tasks.register('integrationTest', Test) {
+
+    description = 'Runs integration tests.'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+
+    classpath = sourceSets.integrationTest.runtimeClasspath
+
+    shouldRunAfter test
+
+    useJUnitPlatform()
+
+    jvmArgs "-javaagent:${configurations.mockitoAgent.asPath}"
+
+    testLogging {
+        events "passed", "failed", "skipped"
+        showStandardStreams = true
+    }
+}
+
+// so that clean build runs both unit and integration tests
+tasks.named('check') {
+    dependsOn tasks.named('integrationTest')
 }
