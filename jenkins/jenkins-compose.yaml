@@ -1,0 +1,30 @@
+# DOCKER GID is the group id that owns the docker socket, so jenkins can connect to it
+services:
+
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: flight-admin-jenkins
+
+    ports:
+      - "8082:8080"
+      - "50000:50000"
+
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    group_add:
+      - "${DOCKER_GID}"
+
+    environment:
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+
+    restart: unless-stopped
+
+
+volumes:
+  jenkins-home:
+

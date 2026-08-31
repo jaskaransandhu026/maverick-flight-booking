@@ -242,3 +242,39 @@ set +a
 ```
 
 After that, Gradle and Spring Boot inherit the variables from the shell.
+
+---
+## Nexus
+Download Nexus Respository community edition and install the community edition 
+
+Login via: 
+```
+Start-Service SonatypeNexusRepository
+```
+
+Check its status:
+```
+Get-Service SonatypeNexusRepository
+```
+
+open at
+```
+http://localhost:8081
+```
+
+For Docker push/pull operations, also make sure Docker Desktop is running. Your registry image address remains:
+```
+host.docker.internal:8081/flight-admin-onprem/...
+```
+
+Login via cli 
+```powershell
+docker login host.docker.internal:8081
+```
+
+To stop Nexus later:
+```powershell
+Stop-Service SonatypeNexusRepository
+```
+
+
