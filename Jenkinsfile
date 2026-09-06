@@ -106,15 +106,15 @@ pipeline {
                 withCredentials([
                         usernamePassword(
                             credentialsId: 'nexus-docker',
-                            usernameVariable: 'NEXUS_USERNAME',
-                            passwordVariable: 'NEXUS_PASSWORD'
+                            usernameVariable: 'NEXUS_CI_USERNAME',
+                            passwordVariable: 'NEXUS_CI_PASSWORD'
                         )
                     ]) {
 
                     sh '''
-                        echo "$NEXUS_PASSWORD" | \
+                        echo "$NEXUS_CI_PASSWORD" | \
                           docker login "$REGISTRY" \
-                          --username "$NEXUS_USERNAME" \
+                          --username "$NEXUS_CI_USERNAME" \
                           --password-stdin
 
                         docker push "$IMAGE_NAME"

@@ -2597,3 +2597,435 @@ In our case it is getting the admin api container from the registry.
 Once kubernetes is setup, compose will no longer be needed as this part will be done by kubernetes. 
 
 But can also have a local dev setup where compose calls dockerfile which will first build the admin api artifact and then compose combines it into the same vnet as the mysql container.
+
+
+## Configuring and Spinning up Jenkins
+
+## 4. Start Jenkins
+
+```bash
+docker compose -f jenkins-compose.yaml up -d
+```
+
+Rebuild only if the Jenkins Dockerfile changed:
+
+```bash
+docker compose -f jenkins-compose.yaml up -d --build
+```
+
+## 5. Verify Jenkins
+
+```bash
+docker compose -f jenkins-compose.yaml ps
+```
+
+Open:
+
+```text
+http://localhost:8082
+```
+
+Do not run:
+
+```bash
+docker compose -f jenkins-compose.yaml down -v
+```
+
+unless you intentionally want to remove the Jenkins data volume.
+
+## 6. Verify Jenkins can use Docker
+
+```bash
+docker exec flight-admin-jenkins docker version
+docker exec flight-admin-jenkins docker ps
+```
+
+Both commands should succeed.
+
+# Jenkins Plugins
+
+Required plugins:
+
+```text
+Git
+GitHub
+GitHub Branch Source
+Pipeline
+Credentials Binding
+JUnit
+```
+
+Check them under:
+
+```text
+Manage Jenkins
+→ Plugins
+→ Installed plugins
+```
+
+GitHub is integrated through Jenkins plugins.
+
+Nexus is not configured as a Jenkins plugin in this setup. Jenkins accesses Nexus as an external Docker registry using Jenkins credentials and the Docker CLI.
+
+# GitHub Configuration
+
+## 1. Create a GitHub fine-grained PAT
+
+In GitHub:
+
+```text
+Profile
+→ Settings
+→ Developer settings
+→ Personal access tokens
+→ Fine-grained tokens
+→ Generate new token
+```
+
+Restrict the token to this repository only.
+
+Recommended repository permissions:
+
+```text
+Contents          Read-only
+Metadata          Read-only
+Commit statuses   Read and write
+```
+
+Do not commit the token to the repository.
+
+## 2. Add the GitHub credential to Jenkins
+
+Go to:
+
+```text
+Manage Jenkins
+→ Credentials
+→ System
+→ Global credentials
+→ Add Credentials
+```
+
+Create:
+
+```text
+Kind:
+Username with password
+
+Username:
+<GitHub username>
+
+Password:
+<GitHub fine-grained PAT>
+
+ID:
+github-credentials
+
+Description:
+GitHub flight-admin-service PAT
+```
+
+Do not create a GitHub App credential unless you are actually using a GitHub App ID and private key.
+
+# Nexus Configuration for Jenkins
+
+## 1. Create a Nexus Jenkins role
+
+In Nexus:
+
+```text
+Settings
+→ Security
+→ Roles
+→ Create role
+```
+
+Create:
+
+```text
+Role ID:
+jenkins-flight-admin
+
+Role Name:
+Jenkins Flight Admin Registry
+```
+
+Give it access only to:
+
+```text
+flight-admin-onprem
+```
+
+Recommended privileges:
+
+```text
+nx-repository-view-docker-flight-admin-onprem-read
+nx-repository-view-docker-flight-admin-onprem-browse
+nx-repository-view-docker-flight-admin-onprem-add
+nx-repository-view-docker-flight-admin-onprem-edit
+```
+
+Do not grant Nexus admin or delete permissions.
+
+## 2. Create a Nexus Jenkins user
+
+In Nexus:
+
+```text
+Settings
+→ Security
+→ Users
+→ Create local user
+```
+
+Create:
+
+```text
+Username:
+jenkins-flight-admin
+```
+
+Assign only the `jenkins-flight-admin` role.
+
+## 3. Enable Docker authentication in Nexus
+
+In Nexus:
+
+```text
+Settings
+→ Security
+→ Realms
+```
+
+Make sure this realm is active:
+
+```text
+Docker Bearer Token Realm
+```
+
+## 4. Add the Nexus credential to Jenkins
+
+In Jenkins:
+
+```text
+Manage Jenkins
+→ Credentials
+→ System
+→ Global credentials
+→ Add Credentials
+```
+
+Create:
+
+```text
+Kind:
+Username with password
+
+Username:
+jenkins-flight-admin
+
+Password:
+<Nexus CI user password>
+
+ID:
+nexus-docker
+
+Description:
+Nexus Docker Registry CI User
+```
+
+The Jenkinsfile must use the same credential ID:
+
+```groovy
+credentialsId: 'nexus-docker'
+```
+
+# Configure the Multibranch Pipeline
+
+In Jenkins:
+
+```text
+Dashboard
+→ New Item
+```
+
+Enter:
+
+```text
+flight-admin-service
+```
+
+Select:
+
+```text
+Multibranch Pipeline
+```
+
+## Branch Source
+
+Go to:
+
+```text
+Branch Sources
+→ Add source
+→ GitHub
+```
+
+Select:
+
+```text
+Credentials:
+github-credentials
+```
+
+Then configure the GitHub repository owner and repository name.
+
+## Branch Discovery
+
+Recommended settings:
+
+```text
+Discover branches
+Strategy:
+All branches
+```
+
+For pull requests from the same repository:
+
+```text
+Discover pull requests from origin
+
+Strategy:
+Merging the current pull request with the current target branch revision
+```
+
+For pull requests from forks:
+
+```text
+Discover pull requests from forks
+
+Strategy:
+Merging the current pull request with the current target branch revision
+
+Trust:
+From users with Admin or Write permission
+```
+
+## Build Configuration
+
+```text
+Mode:
+by Jenkinsfile
+
+Script Path:
+Jenkinsfile
+```
+
+The repository must contain `Jenkinsfile` at its root.
+
+# Jenkinsfile Registry Configuration
+
+Example:
+
+```groovy
+environment {
+    REGISTRY = 'host.docker.internal:8081'
+    NEXUS_REPOSITORY = 'flight-admin-onprem'
+    APPLICATION_NAME = 'flight-admin-service'
+}
+```
+
+The Docker image name is generated from the branch name and Git commit SHA.
+
+Example:
+
+```text
+master-736621fb
+```
+
+Full image:
+
+```text
+host.docker.internal:8081/flight-admin-onprem/flight-admin-service:master-736621fb
+```
+
+# Nexus Login from the Pipeline
+
+```groovy
+withCredentials([
+    usernamePassword(
+        credentialsId: 'nexus-docker',
+        usernameVariable: 'NEXUS_CI_USERNAME',
+        passwordVariable: 'NEXUS_CI_PASSWORD'
+    )
+]) {
+    sh '''
+        echo "$NEXUS_CI_PASSWORD" | \
+          docker login "$REGISTRY" \
+          --username "$NEXUS_CI_USERNAME" \
+          --password-stdin
+
+        docker push "$IMAGE_NAME"
+    '''
+}
+```
+
+The Nexus password is stored in Jenkins, not in the Jenkinsfile.
+
+# Verify a Successful Build
+
+Expected pipeline stages:
+
+```text
+Checkout                 ✓
+Prepare Gradle           ✓
+Unit Tests               ✓
+Integration Tests        ✓
+Build Artifact           ✓
+Generate Docker Tag      ✓
+Build Docker Image       ✓
+Push Docker Image        ✓
+```
+
+A successful log should contain something similar to:
+
+```text
+Login Succeeded
+
+docker push host.docker.internal:8081/flight-admin-onprem/flight-admin-service:master-<git-sha>
+
+master-<git-sha>: digest: sha256:...
+
+Build successful.
+
+GitHub has been notified of this commit's build result
+
+Finished: SUCCESS
+```
+
+Verify the image in Nexus:
+
+```text
+http://localhost:8081
+```
+
+Then:
+
+```text
+Browse
+→ flight-admin-onprem
+→ flight-admin-service
+```
+
+# GitHub Build Status
+
+A successful Jenkins build should appear green on GitHub.
+
+The GitHub fine-grained PAT requires:
+
+```text
+Commit statuses:
+Read and write
+```
+
+for Jenkins to publish the status.
