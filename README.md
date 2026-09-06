@@ -3029,3 +3029,151 @@ Read and write
 ```
 
 for Jenkins to publish the status.
+
+# ngrok + GitHub Webhook Setup for Local Jenkins
+
+Use ngrok to expose your local Jenkins instance so GitHub can trigger builds automatically after a push.
+
+## 1. Start Jenkins
+
+Make sure Jenkins is running locally at:
+
+```text
+http://localhost:8082
+```
+
+Verify:
+
+```bash
+docker ps
+```
+
+---
+
+## 2. Install ngrok
+
+On Windows, install with WinGet:
+
+```powershell
+winget install ngrok -s msstore
+```
+
+Verify:
+
+```powershell
+ngrok version
+```
+
+---
+
+## 3. Add your ngrok auth token
+
+Create/sign in to your ngrok account and copy your auth token.
+
+Run:
+
+```powershell
+ngrok config add-authtoken YOUR_AUTHTOKEN
+```
+
+---
+
+## 4. Start the tunnel
+
+Run:
+
+```powershell
+ngrok http 8082
+```
+
+ngrok will show a public URL similar to:
+
+```text
+https://abc123.ngrok.app
+```
+
+This forwards traffic to:
+
+```text
+http://localhost:8082
+```
+
+Keep the ngrok terminal running.
+
+---
+
+## 5. Configure the GitHub webhook
+
+In GitHub:
+
+```text
+Repository
+→ Settings
+→ Webhooks
+→ Add webhook
+```
+
+Use:
+
+```text
+Payload URL:
+https://abc123.ngrok.app/github-webhook/
+
+Content type:
+application/json
+
+SSL verification:
+Enable SSL verification
+
+Events:
+Just the push event
+
+Active:
+✓
+```
+
+The `/github-webhook/` suffix is required for Jenkins.
+
+---
+
+## 6. Test automatic builds
+
+Push a commit:
+
+```bash
+git add .
+git commit -m "Test Jenkins webhook"
+git push origin master
+```
+
+---
+
+## 7. Check webhook delivery
+
+In GitHub:
+
+```text
+Repository
+→ Settings
+→ Webhooks
+→ Select webhook
+→ Recent Deliveries
+```
+
+A successful delivery should return an HTTP success response.
+
+You can also inspect incoming requests through ngrok at:
+
+```text
+http://localhost:4040
+```
+
+---
+
+## Important
+
+- Jenkins must be running.
+- ngrok must be running.
+- Closing ngrok stops the public tunnel.
+- If ngrok gives you a new public URL, update the GitHub webhook URL.
+- While the tunnel is active, Jenkins is publicly reachable through the ngrok URL, so only use this for local development/testing.
