@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/flights")
+@RequestMapping("/api/v1/admin/flights")
 public class FlightController {
 
     private static final Logger log = LoggerFactory.getLogger(FlightController.class);
