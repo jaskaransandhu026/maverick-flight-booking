@@ -63,7 +63,7 @@ class AirportControllerIntegrationTest {
         AirportResponse response =
                 restClient
                         .post()
-                        .uri("/api/v1/airports")
+                        .uri("/api/v1/admin/airports")
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(requestBody)
                         .exchange()
@@ -108,7 +108,7 @@ class AirportControllerIntegrationTest {
         // First request succeeds
         restClient
                 .post()
-                .uri("/api/v1/airports")
+                .uri("/api/v1/admin/airports")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(requestBody)
                 .exchange()
@@ -119,7 +119,7 @@ class AirportControllerIntegrationTest {
         // Same airport again
         restClient
                 .post()
-                .uri("/api/v1/airports")
+                .uri("/api/v1/admin/airports")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(requestBody)
                 .exchange()
@@ -143,7 +143,7 @@ class AirportControllerIntegrationTest {
 
         restClient
                 .post()
-                .uri("/api/v1/airports")
+                .uri("/api/v1/admin/airports")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(requestBody)
                 .exchange()
@@ -174,7 +174,7 @@ class AirportControllerIntegrationTest {
         AirportResponse response =
                 restClient
                         .get()
-                        .uri("/api/v1/airports/{id}", savedAirport.getId())
+                        .uri("/api/v1/admin/airports/{id}", savedAirport.getId())
                         .exchange()
                         .expectStatus()
                         .isOk()
@@ -216,7 +216,7 @@ class AirportControllerIntegrationTest {
         // Act + Assert
         restClient
                 .get()
-                .uri("/api/v1/airports/{id}", airportId)
+                .uri("/api/v1/admin/airports/{id}", airportId)
                 .exchange()
                 .expectStatus()
                 .isNotFound();
@@ -254,7 +254,7 @@ class AirportControllerIntegrationTest {
         List<AirportResponse> response =
                 restClient
                         .get()
-                        .uri("/api/v1/airports")
+                        .uri("/api/v1/admin/airports")
                         .exchange()
                         .expectStatus()
                         .isOk()
