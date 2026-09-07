@@ -35,7 +35,7 @@ pipeline {
             post {
                 always {
                     junit allowEmptyResults: true,
-                    testResults: 'build/test-results/test/*.xml'
+                        testResults: 'build/test-results/test/*.xml'
                 }
             }
         }
@@ -48,7 +48,7 @@ pipeline {
             post {
                 always {
                     junit allowEmptyResults: true,
-                    testResults: 'build/test-results/integrationTest/*.xml'
+                        testResults: 'build/test-results/integrationTest/*.xml'
                 }
             }
         }
@@ -78,18 +78,27 @@ pipeline {
                     ).trim()
 
                     def safeBranch = env.BRANCH_NAME
-                    .replaceAll('[^A-Za-z0-9_.-]', '-')
-                    .toLowerCase()
+                        .replaceAll('[^A-Za-z0-9_.-]', '-')
+                        .toLowerCase()
 
                     env.IMAGE_TAG = "${safeBranch}-${gitSha}"
 
                     env.IMAGE_NAME =
-                    "${env.REGISTRY}/" +
-                    "${env.NEXUS_REPOSITORY}/" +
-                    "${env.APPLICATION_NAME}:" +
-                    "${env.IMAGE_TAG}"
+                        "${env.REGISTRY}/" +
+                        "${env.NEXUS_REPOSITORY}/" +
+                        "${env.APPLICATION_NAME}:" +
+                        "${env.IMAGE_TAG}"
+
+                    env.LATEST_IMAGE_NAME =
+                        "${env.REGISTRY}/" +
+                        "${env.NEXUS_REPOSITORY}/" +
+                        "${env.APPLICATION_NAME}:latest"
 
                     echo "Docker image: ${env.IMAGE_NAME}"
+
+                    if (env.BRANCH_NAME == 'master') {
+                        echo "Latest image: ${env.LATEST_IMAGE_NAME}"
+                    }
                 }
             }
         }
@@ -97,6 +106,14 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh 'docker build -t "$IMAGE_NAME" .'
+
+                script {
+                    if (env.BRANCH_NAME == 'master') {
+                        sh '''
+                            docker tag "$IMAGE_NAME" "$LATEST_IMAGE_NAME"
+                        '''
+                    }
+                }
             }
         }
 
@@ -104,12 +121,12 @@ pipeline {
             steps {
 
                 withCredentials([
-                        usernamePassword(
-                            credentialsId: 'nexus-docker',
-                            usernameVariable: 'NEXUS_CI_USERNAME',
-                            passwordVariable: 'NEXUS_CI_PASSWORD'
-                        )
-                    ]) {
+                    usernamePassword(
+                        credentialsId: 'nexus-docker',
+                        usernameVariable: 'NEXUS_CI_USERNAME',
+                        passwordVariable: 'NEXUS_CI_PASSWORD'
+                    )
+                ]) {
 
                     sh '''
                         echo "$NEXUS_CI_PASSWORD" | \
@@ -119,6 +136,14 @@ pipeline {
 
                         docker push "$IMAGE_NAME"
                     '''
+
+                    script {
+                        if (env.BRANCH_NAME == 'master') {
+                            sh '''
+                                docker push "$LATEST_IMAGE_NAME"
+                            '''
+                        }
+                    }
                 }
             }
 
@@ -135,6 +160,12 @@ pipeline {
         success {
             echo 'Build successful.'
             echo "Published image: ${env.IMAGE_NAME}"
+
+            script {
+                if (env.BRANCH_NAME == 'master') {
+                    echo "Published latest image: ${env.LATEST_IMAGE_NAME}"
+                }
+            }
         }
 
         failure {
