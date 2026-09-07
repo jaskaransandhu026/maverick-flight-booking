@@ -33,7 +33,7 @@ services:
 
 
   flight-admin-service:
-    image: host.docker.internal:8081/flight-admin-onprem/flight-admin-service:master-0388212d
+    image: host.docker.internal:8081/flight-admin-onprem/flight-admin-service:master-ea222832
     container_name: flight-admin-service
 
     depends_on:
